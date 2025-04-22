@@ -9,7 +9,7 @@ __pycache__/
 venv/
 .env
 .env.*
-
+env/
 # === OS / IDE Files ===
 .DS_Store
 Thumbs.db
