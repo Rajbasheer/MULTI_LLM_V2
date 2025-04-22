@@ -3,13 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Literal
-from features import file_upload
+from features import file_upload, chat_with_upload, chat_history
 
 from llm_router import stream_openai, stream_claude, stream_gemini, stream_openrouter
 from models import MODELS
 from db.models_db import init_db,SessionLocal, BRDUpload
 from sqlalchemy.orm import Session
 from features import chat_with_upload
+from auth import auth
 
 
 init_db()
@@ -99,6 +100,12 @@ app.include_router(file_upload.router)
 
 #chat_with_file_upload
 app.include_router(chat_with_upload.router)
+
+#Router_for_chat
+app.include_router(chat_history.router)
+
+#Router_for_user_authentication
+app.include_router(auth.router)
 
 @app.get("/")
 def health_check():
