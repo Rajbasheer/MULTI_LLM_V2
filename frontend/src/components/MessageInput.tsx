@@ -1,34 +1,54 @@
 import React, { KeyboardEvent, useState } from 'react';
-import { Plus, Globe2, Sparkles, MoreHorizontal } from 'lucide-react';
+import { Plus, Globe2, Sparkles } from 'lucide-react';
 import { FileUpload } from './FileUpload';
 
 interface MessageInputProps {
   message: string;
   setMessage: (message: string) => void;
-  onSendMessage: (message: string, files?: File[]) => void;
+  onSendMessage: (message: string, fileContents?: string[]) => void;
   disabled: boolean;
   isDarkMode: boolean;
 }
 
 export function MessageInput({ message, setMessage, onSendMessage, disabled, isDarkMode }: MessageInputProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  
+
   const handleKeyPress = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && message.trim()) {
       e.preventDefault();
       sendMessage();
     }
   };
-  
+
   const handleFilesSelected = (files: File[]) => {
     setSelectedFiles(files);
   };
-  
-  const sendMessage = () => {
-    if (message.trim() || selectedFiles.length > 0) {
-      onSendMessage(message, selectedFiles.length > 0 ? selectedFiles : undefined);
+
+  const readFilesAsText = (files: File[]): Promise<string[]> => {
+    return Promise.all(files.map(file => {
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+    }));
+  };
+
+  const sendMessage = async () => {
+    if (!message.trim() && selectedFiles.length === 0) return;
+
+    try {
+      const fileContents = selectedFiles.length > 0 
+        ? await readFilesAsText(selectedFiles)
+        : undefined;
+
+      onSendMessage(message, fileContents);
       setMessage('');
       setSelectedFiles([]);
+    } catch (err) {
+      console.error('Error reading files:', err);
+      alert('Failed to read file(s).');
     }
   };
 
@@ -51,31 +71,15 @@ export function MessageInput({ message, setMessage, onSendMessage, disabled, isD
               rows={2}
             />
             <div className="absolute right-2 flex items-center gap-2">
-              {/* File Upload Component */}
               <FileUpload 
                 onFilesSelected={handleFilesSelected} 
                 isDarkMode={isDarkMode} 
                 disabled={disabled} 
               />
-              
-              <button 
-                className={`p-2 ${isDarkMode ? 'text-gray-400 hover:bg-[#4a4b55]' : 'text-gray-500 hover:bg-gray-100'} rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
-                disabled={disabled}
-              >
-                <Plus size={16} />
-              </button>
-              <button 
-                className={`p-2 ${isDarkMode ? 'text-gray-400 hover:bg-[#4a4b55]' : 'text-gray-500 hover:bg-gray-100'} rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
-                disabled={disabled}
-              >
-                <Globe2 size={16} />
-              </button>
-              <button 
-                className={`p-2 ${isDarkMode ? 'text-gray-400 hover:bg-[#4a4b55]' : 'text-gray-500 hover:bg-gray-100'} rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
-                disabled={disabled}
-              >
-                <Sparkles size={16} />
-              </button>
+
+              <button className="p-2 text-gray-500 hover:bg-gray-100 rounded" disabled={disabled}><Plus size={16} /></button>
+              <button className="p-2 text-gray-500 hover:bg-gray-100 rounded" disabled={disabled}><Globe2 size={16} /></button>
+              <button className="p-2 text-gray-500 hover:bg-gray-100 rounded" disabled={disabled}><Sparkles size={16} /></button>
               <button 
                 onClick={sendMessage}
                 disabled={disabled || (!message.trim() && selectedFiles.length === 0)}
@@ -83,7 +87,7 @@ export function MessageInput({ message, setMessage, onSendMessage, disabled, isD
                   isDarkMode 
                     ? 'bg-purple-600 hover:bg-purple-700 text-white' 
                     : 'bg-purple-500 hover:bg-purple-600 text-white'
-                } rounded-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium`}
+                } rounded-md text-sm font-medium`}
               >
                 Send
               </button>

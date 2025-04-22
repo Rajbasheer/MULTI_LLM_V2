@@ -9,16 +9,15 @@ DB_PATH = "sqlite:///brd.db"
 engine = create_engine(DB_PATH)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-class BRDUpload(Base):
-    __tablename__ = "brd_uploads"
+#class BRDUpload(Base):
+#   __tablename__ = "brd_uploads"
 
-    id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String, nullable=False)
-    filetype = Column(String, nullable=False)
-    upload_time = Column(DateTime, default=datetime.utcnow)
-    content_preview = Column(Text)
-    full_content = Column(Text)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+#    id = Column(Integer, primary_key=True, index=True)
+#    filetype = Column(String, nullable=False)
+#    upload_time = Column(DateTime, default=datetime.utcnow)
+#    content_preview = Column(Text)
+#    full_content = Column(Text)
+#    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
 class ChatHistory(Base):
     __tablename__ = "chat_history"
@@ -39,6 +38,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
 
 def init_db():
     Base.metadata.create_all(bind=engine)

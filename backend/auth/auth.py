@@ -1,21 +1,41 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+import os
+from dotenv import load_dotenv
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
-
-from sqlalchemy.orm import Session
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+from passlib.context import CryptContext
 from datetime import datetime, timedelta
+import smtplib
+from email.mime.text import MIMEText
+from email.message import EmailMessage
+from db.models_db import User, SessionLocal
+from .schemas import UserCreate, UserLogin, Token
 
-from db.models_db import SessionLocal, User
-from auth.schemas import UserCreate, UserLogin, Token
 
-router = APIRouter()
+load_dotenv()
 
-# === JWT Config ===
-SECRET_KEY = "your_secret_key_here"  # Use a secure env var in production!
+EMAIL_ADDRESS = os.getenv("EMAIL_FROM")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+
+
+SECRET_KEY = "supersecretkey"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-# === DB Dependency ===
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+router = APIRouter()
+
+# === Token Creation ===
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+# === Dependency to get DB ===
 def get_db():
     db = SessionLocal()
     try:
@@ -23,56 +43,78 @@ def get_db():
     finally:
         db.close()
 
-# === JWT Generation ===
-def create_access_token(data: dict, expires_delta: timedelta = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+# === Send Verification Email ===
+def send_verification_email(to_email: str, token: str):
+    link = f"http://localhost:8000/auth/verify-email?token={token}"
+    subject = "Verify your email"
+    body = f"Click the link to verify your email: {link}"
 
-# === Signup Route (no hashing yet) ===
-@router.post("/signup", response_model=Token)
-def signup(user: UserCreate, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(
-        (User.username == user.username) | (User.email == user.email)
-    ).first()
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_ADDRESS
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        print("Error sending email:", e)
+
+# === Register ===
+@router.post("/signup")
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.username == user.username).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="Username or email already registered")
+        raise HTTPException(status_code=400, detail="Username already registered")
 
-    new_user = User(
-        username=user.username,
-        email=user.email,
-        hashed_password=user.password  # plain text for now
-    )
+    hashed_pw = user.password  # Hashing skipped for testing
+    new_user = User(username=user.username, email=user.email, hashed_password=hashed_pw, is_verified=False)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
-    access_token = create_access_token(data={"sub": new_user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    verification_token = create_access_token(data={"sub": new_user.email}, expires_delta=timedelta(hours=1))
+    send_verification_email(new_user.email, verification_token)
 
-# === Login Route (no hashing yet) ===
-@router.post("/login", response_model=Token)
+    return {"message": "User registered. Verification email sent."}
+
+# === Email Verification ===
+@router.get("/verify-email")
+def verify_email(token: str, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=400, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid token")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_verified = True
+    db.commit()
+    return {"message": "Email verified successfully."}
+
+# === Login ===
+@router.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.username == user.username).first()
-    if not db_user or user.password != db_user.hashed_password:
+    if not db_user or db_user.hashed_password != user.password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not db_user.is_verified:
+        raise HTTPException(status_code=403, detail="Email not verified")
 
     access_token = create_access_token(data={"sub": db_user.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
-
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
+# === Get Current User ===
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -82,7 +124,6 @@ def get_current_user(
         raise credentials_exception
 
     user = db.query(User).filter(User.username == username).first()
-    if not user:
+    if user is None:
         raise credentials_exception
-
     return user

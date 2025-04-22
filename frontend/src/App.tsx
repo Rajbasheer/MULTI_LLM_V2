@@ -5,6 +5,11 @@ import { TopBar } from './components/TopBar';
 import { ChatWindow } from './components/ChatWindow';
 import { MessageInput } from './components/MessageInput';
 
+interface AppProps {
+  token?: string | null;
+  onLogout?: () => void;
+}
+
 interface Model {
   name: string;
   id: string;
@@ -39,10 +44,10 @@ interface FileAttachment {
   name: string;
   size: number;
   type: string;
-  backendId?: number;  // Add this to track backend ID
+  backendId?: number;
 }
 
-function App() {
+function App({ token, onLogout }: AppProps) {
   const [message, setMessage] = useState('');
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -140,6 +145,10 @@ function App() {
         
         const response = await fetch('http://localhost:8000/upload', {
           method: 'POST',
+          headers: {
+            // Include the auth token if available
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
           body: formData,
         });
         
@@ -242,11 +251,18 @@ function App() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              // Include the auth token if available
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
             },
             body: JSON.stringify(payload)
           });
 
           if (!response.ok) {
+            // If unauthorized, logout
+            if (response.status === 401 && onLogout) {
+              onLogout();
+              throw new Error('Session expired. Please login again.');
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
           }
 
@@ -343,7 +359,6 @@ function App() {
     }
   };
 
-
   // Add dark mode class to the html element
   React.useEffect(() => {
     if (isDarkMode) {
@@ -354,71 +369,70 @@ function App() {
   }, [isDarkMode]);
 
   return (
-    <Router>
-      <div className={`flex h-screen ${isDarkMode ? 'bg-[#343541]' : 'bg-gray-100'}`}>
-        {/* Sidebar */}
-        <div className={`
-          fixed left-0 top-0 h-full transition-transform duration-300 ease-in-out z-40
-          ${isSidebarVisible ? 'translate-x-0' : '-translate-x-full'}
-        `}>
-          <Sidebar 
-            isDarkMode={isDarkMode} 
-            onToggleTheme={toggleTheme}
-            toggleSidebar={toggleSidebar}
-            conversations={conversations}
-            currentConversationId={currentConversationId}
-            onSelectConversation={selectConversation}
-            onNewChat={() => createNewConversation()}
-          />
-        </div>
-
-        {/* Main Content */}
-        <div className={`flex-1 flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out ${
-          isSidebarVisible ? 'ml-64' : 'ml-0'
-        }`}>
-          {/* Top Bar - Fixed */}
-          <TopBar 
-            isDarkMode={isDarkMode}
-            onToggleTheme={toggleTheme}
-            columnCount={columnCount}
-            setColumnCount={setColumnCount}
-            toggleSidebar={toggleSidebar}
-            isSidebarVisible={isSidebarVisible}
-          />
-
-          {/* Chat Windows Grid - Scrollable area */}
-          <div className={`flex-1 grid ${
-            columnCount === 1 ? 'grid-cols-1' : 
-            columnCount === 2 ? 'grid-cols-2' : 
-            columnCount === 3 ? 'grid-cols-3' : 
-            'grid-cols-4'
-          } gap-4 p-4 overflow-hidden`}>
-            {Array.from({ length: columnCount }).map((_, index) => (
-              <ChatWindow 
-                key={index}
-                selectedModel={selectedModels[index] || ''}
-                setSelectedModel={(model) => handleModelSelect(model, index)}
-                messages={messages.filter(msg => msg.columnIndex === index)}
-                hasInteraction={hasInteraction}
-                isLoading={isLoading}
-                models={models}
-                onDeleteMessage={(messageId) => handleDeleteMessage(messageId, index)}
-                isDarkMode={isDarkMode}
-              />
-            ))}
-          </div>
-
-          {/* Fixed Message Input at Bottom */}
-          <MessageInput 
-            message={message} 
-            setMessage={setMessage}
-            onSendMessage={handleSendMessage}
-            disabled={inputDisabled}
-            isDarkMode={isDarkMode}
-          />
-        </div>
+    <div className={`flex h-screen ${isDarkMode ? 'bg-[#343541]' : 'bg-gray-100'}`}>
+      {/* Sidebar */}
+      <div className={`
+        fixed left-0 top-0 h-full transition-transform duration-300 ease-in-out z-40
+        ${isSidebarVisible ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <Sidebar 
+          isDarkMode={isDarkMode} 
+          onToggleTheme={toggleTheme}
+          toggleSidebar={toggleSidebar}
+          conversations={conversations}
+          currentConversationId={currentConversationId}
+          onSelectConversation={selectConversation}
+          onNewChat={() => createNewConversation()}
+          onLogout={onLogout}
+        />
       </div>
-    </Router>
+
+      {/* Main Content */}
+      <div className={`flex-1 flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out ${
+        isSidebarVisible ? 'ml-64' : 'ml-0'
+      }`}>
+        {/* Top Bar - Fixed */}
+        <TopBar 
+          isDarkMode={isDarkMode}
+          onToggleTheme={toggleTheme}
+          columnCount={columnCount}
+          setColumnCount={setColumnCount}
+          toggleSidebar={toggleSidebar}
+          isSidebarVisible={isSidebarVisible}
+        />
+
+        {/* Chat Windows Grid - Scrollable area */}
+        <div className={`flex-1 grid ${
+          columnCount === 1 ? 'grid-cols-1' : 
+          columnCount === 2 ? 'grid-cols-2' : 
+          columnCount === 3 ? 'grid-cols-3' : 
+          'grid-cols-4'
+        } gap-4 p-4 overflow-hidden`}>
+          {Array.from({ length: columnCount }).map((_, index) => (
+            <ChatWindow 
+              key={index}
+              selectedModel={selectedModels[index] || ''}
+              setSelectedModel={(model) => handleModelSelect(model, index)}
+              messages={messages.filter(msg => msg.columnIndex === index)}
+              hasInteraction={hasInteraction}
+              isLoading={isLoading}
+              models={models}
+              onDeleteMessage={(messageId) => handleDeleteMessage(messageId, index)}
+              isDarkMode={isDarkMode}
+            />
+          ))}
+        </div>
+
+        {/* Fixed Message Input at Bottom */}
+        <MessageInput 
+          message={message} 
+          setMessage={setMessage}
+          onSendMessage={handleSendMessage}
+          disabled={inputDisabled}
+          isDarkMode={isDarkMode}
+        />
+      </div>
+    </div>
   );
 }
 

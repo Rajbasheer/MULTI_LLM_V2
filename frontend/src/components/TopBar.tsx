@@ -1,6 +1,5 @@
 import React from 'react';
 import { ChevronRight, Sun, Moon } from 'lucide-react';
-import { FileSelector } from './FileSelector';
 
 interface TopBarProps {
   isDarkMode: boolean;
@@ -9,8 +8,6 @@ interface TopBarProps {
   setColumnCount: (count: number) => void;
   toggleSidebar: () => void;
   isSidebarVisible: boolean;
-  selectedFileId: number | null;
-  onFileSelect: (fileId: number | null) => void;
 }
 
 export function TopBar({ 
@@ -19,9 +16,7 @@ export function TopBar({
   columnCount, 
   setColumnCount, 
   toggleSidebar, 
-  isSidebarVisible,
-  selectedFileId,
-  onFileSelect
+  isSidebarVisible
 }: TopBarProps) {
   return (
     <div className={`w-full ${isDarkMode ? 'bg-[#202123]' : 'bg-white'} border-b ${isDarkMode ? 'border-gray-600/50' : 'border-gray-200'} p-4 flex items-center justify-between`}>
@@ -56,14 +51,6 @@ export function TopBar({
             <option value={4}>4 LLMs</option>
           </select>
         </div>
-        
-        <div className="border-l border-gray-600/50 h-8 mx-4" />
-        
-        <FileSelector
-          isDarkMode={isDarkMode}
-          onFileSelect={onFileSelect}
-          selectedFileId={selectedFileId}
-        />
       </div>
       
       {/* Theme Toggle Button */}
