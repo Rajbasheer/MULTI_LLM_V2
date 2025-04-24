@@ -6,7 +6,7 @@ from typing import List, Literal
 from sqlalchemy.orm import Session
 import json
 
-from features import file_upload, chat_with_upload, chat_history
+from features import file_upload, chat_with_upload
 from llm_router import stream_openai, stream_claude, stream_gemini, stream_openrouter
 from models import MODELS
 from db.models_db import init_db, SessionLocal, ChatHistory, User
@@ -81,8 +81,8 @@ def save_chat_history(
         # Prepare chat history entry
         new_chat_history = ChatHistory(
             user_id=current_user.id,
-            model_provider=chat_data.get('provider'),
-            model_name=chat_data.get('model_name'),
+            provider=chat_data.get('provider'),     # Changed from model_provider
+            model=chat_data.get('model_name'),      # Changed from model_name
             conversation_id=chat_data.get('conversation_id'),
             messages=json.dumps(chat_data.get('messages', []))
         )
@@ -110,8 +110,8 @@ def get_chat_history(
         return [
             {
                 "id": history.id,
-                "model_provider": history.model_provider,
-                "model_name": history.model_name,
+                "provider": history.provider,
+                "model_name": history.model,
                 "conversation_id": history.conversation_id,
                 "messages": json.loads(history.messages),
                 "created_at": history.created_at
@@ -130,7 +130,6 @@ def get_models():
 # === Routers ===
 app.include_router(file_upload.router)         # Upload + extract-only
 app.include_router(chat_with_upload.router)    # Chat with uploaded file content
-app.include_router(chat_history.router)        # Chat history per user
 app.include_router(auth.router)                # Auth system
 app.include_router(auth_extra.router)
 

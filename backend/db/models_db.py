@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.sql import func
 from datetime import datetime
 
 Base = declarative_base()
@@ -9,26 +10,20 @@ DB_PATH = "sqlite:///brd.db"
 engine = create_engine(DB_PATH)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-#class BRDUpload(Base):
-#   __tablename__ = "brd_uploads"
-
-#    id = Column(Integer, primary_key=True, index=True)
-#    filetype = Column(String, nullable=False)
-#    upload_time = Column(DateTime, default=datetime.utcnow)
-#    content_preview = Column(Text)
-#    full_content = Column(Text)
-#    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
 class ChatHistory(Base):
-    __tablename__ = "chat_history"
+    __tablename__ = "chat_histories"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    provider = Column(String, nullable=False)
-    model_key = Column(String, nullable=False)
-    file_id = Column(Integer, nullable=True)
-    messages = Column(Text, nullable=False)  # JSON-encoded list
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    
+    # Ensure these column names match exactly with what you're trying to save
+    provider = Column(String, nullable=False)  # Changed from model_provider
+    model = Column(String, nullable=False)     # Changed from model_name
+    conversation_id = Column(String, nullable=False)
+    messages = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    user = relationship("User", back_populates="chat_histories")
 
 class User(Base):
     __tablename__ = "users"
@@ -39,6 +34,8 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+
+    chat_histories = relationship("ChatHistory", back_populates="user")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
