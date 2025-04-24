@@ -38,7 +38,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
       }
 
       // Store token in localStorage
-      localStorage.setItem('accessToken', data.access_token);
+      localStorage.setItem('token', data.access_token);
       
       // Call the success handler with the token
       onLoginSuccess(data.access_token);
@@ -83,6 +83,9 @@ export function Login({ onLoginSuccess }: LoginProps) {
       setIsLoading(false);
     }
   };
+ 
+
+  
 
   return (
     <AuthLayout>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Trash2, File, FileText, FileImage, FileArchive } from 'lucide-react';
 
 interface FileAttachment {
@@ -18,7 +18,8 @@ interface MessageProps {
   attachments?: FileAttachment[];
 }
 
-export function Message({ 
+// Use React.memo to prevent unnecessary re-renders
+export const Message = memo(function Message({ 
   id, 
   content, 
   isUser = false, 
@@ -112,4 +113,4 @@ export function Message({
       </div>
     </div>
   );
-}
+});

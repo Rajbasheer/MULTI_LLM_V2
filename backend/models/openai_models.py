@@ -19,10 +19,6 @@ OPENAI_MODELS = {
         "name": "GPT-4o Mini",
         "id": "gpt-4o-mini"
     },
-    "gpt-4.5": {
-        "name": "GPT-4.5 (Orion)",
-        "id": "gpt-4.5"
-    },
     "gpt-3.5-turbo": {
         "name": "GPT-3.5 Turbo",
         "id": "gpt-3.5-turbo"

@@ -6,7 +6,7 @@ from typing import List, Literal
 from sqlalchemy.orm import Session
 import json
 
-from features import file_upload, chat_with_upload
+from features import file_upload, chat_with_upload, chat_routes
 from llm_router import stream_openai, stream_claude, stream_gemini, stream_openrouter
 from models import MODELS
 from db.models_db import init_db, SessionLocal, ChatHistory, User
@@ -120,6 +120,32 @@ def get_chat_history(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/get-chat-history/{conversation_id}")
+def get_chat_history_by_id(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    try:
+        # Fetch specific chat history by conversation_id
+        chat_history = db.query(ChatHistory).filter(
+            ChatHistory.user_id == current_user.id,
+            ChatHistory.conversation_id == conversation_id
+        ).first()
+        
+        if not chat_history:
+            raise HTTPException(status_code=404, detail="Chat history not found")
+        
+        return {
+            "id": chat_history.id,
+            "provider": chat_history.provider,
+            "model_name": chat_history.model,
+            "conversation_id": chat_history.conversation_id,
+            "messages": json.loads(chat_history.messages),
+            "created_at": chat_history.created_at
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === GET /models ===
@@ -132,6 +158,7 @@ app.include_router(file_upload.router)         # Upload + extract-only
 app.include_router(chat_with_upload.router)    # Chat with uploaded file content
 app.include_router(auth.router)                # Auth system
 app.include_router(auth_extra.router)
+app.include_router(chat_routes.router)
 
 # === Root health check ===
 @app.get("/")

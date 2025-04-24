@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
-import { ChatWindow } from './components/ChatWindow';
+import ChatWindow from './components/ChatWindow';
 import { MessageInput } from './components/MessageInput';
 
 interface AppProps {
@@ -59,10 +59,41 @@ function App({ token, onLogout }: AppProps) {
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [columnCount, setColumnCount] = useState(1);
   
+  // Add streaming responses state to handle parallel updates more efficiently
+  const [streamingResponses, setStreamingResponses] = useState<{[key: string]: string}>({});
+  
   // Chat conversation state
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
 
+  const handleNewChat = () => {
+    setCurrentConversationId(`conv-${Date.now()}`);
+    setMessages([]);
+    setHasInteraction(false);
+  };
+  
+  useEffect(() => {
+    const fetchConversations = async () => {
+      const token = localStorage.getItem("token");
+      try {
+        const response = await fetch("http://localhost:8000/get-chat-history", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+  
+        if (!response.ok) throw new Error("Failed to fetch conversations");
+  
+        const data = await response.json();
+        setConversations(data); // Assuming it's an array of { id, model_name, conversation_id, created_at }
+      } catch (error) {
+        console.error("Failed to load conversations", error);
+      }
+    };
+  
+    fetchConversations();
+  }, []);
+  
   useEffect(() => {
     // Fetch models from the backend
     const fetchModels = async () => {
@@ -177,14 +208,27 @@ function App({ token, onLogout }: AppProps) {
     }
   };
 
+  const savedColumnsRef = useRef<{ [key: number]: boolean }>({});
+
   const saveChatHistory = async (columnIndex: number) => {
-    // Get messages for this specific column
+    // If already saved for this column, skip
+    if (savedColumnsRef.current[columnIndex]) return;
+  
     const columnMessages = messages
       .filter(msg => msg.columnIndex === columnIndex)
       .map(msg => ({
         role: msg.isUser ? 'user' : 'assistant',
         content: msg.content
       }));
+  
+    const providerKey = Object.keys(models).find(p =>
+      Object.keys(models[p]).includes(selectedModels[columnIndex])
+    );
+    if (!providerKey) {
+      console.error("Provider key not found for selected model.");
+      return;
+    }
+    const modelName = models[providerKey][selectedModels[columnIndex]].name;
   
     try {
       const response = await fetch('http://localhost:8000/save-chat-history', {
@@ -194,10 +238,8 @@ function App({ token, onLogout }: AppProps) {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          provider: Object.keys(models).find(p => 
-            Object.keys(models[p]).includes(selectedModels[columnIndex])
-          ),
-          model_name: models[provider][selectedModels[columnIndex]].name,
+          provider: providerKey,
+          model_name: modelName,
           conversation_id: currentConversationId,
           messages: columnMessages
         })
@@ -206,6 +248,10 @@ function App({ token, onLogout }: AppProps) {
       if (!response.ok) {
         throw new Error('Failed to save chat history');
       }
+  
+      // Mark this column as saved
+      savedColumnsRef.current[columnIndex] = true;
+      console.log(`Chat history saved for column ${columnIndex}`);
     } catch (error) {
       console.error('Error saving chat history:', error);
     }
@@ -239,7 +285,10 @@ function App({ token, onLogout }: AppProps) {
       }
     }
 
-    // Send message to all active columns
+    // Create an array of promises for each API call
+    const modelPromises = [];
+
+    // Set up user messages and prepare API calls for all active models
     for (let i = 0; i < columnCount; i++) {
       if (selectedModels[i]) {
         const userMessageId = `${Date.now()}-user-${i}`;
@@ -254,100 +303,126 @@ function App({ token, onLogout }: AppProps) {
         
         setIsLoading(true);
         
-        try {
-          const provider = Object.keys(models).find(p => 
-            Object.keys(models[p]).includes(selectedModels[i])
-          );
-          
-          // Check if message has file attachments, use chat-with-upload if so
-          let endpoint = 'http://localhost:8000/chat';
-          let payload;
-          
-          if (fileAttachments && fileAttachments.length > 0) {
-            // Use the first file's backend ID - you might want to support multiple files in the future
-            const fileId = fileAttachments[0].backendId;
-            endpoint = 'http://localhost:8000/chat-with-upload';
-            payload = {
-              provider,
-              model_key: selectedModels[i],
-              file_id: fileId,
-              user_prompt: content
-            };
-          } else {
-            payload = {
-              provider,
-              model_key: selectedModels[i],
-              messages: [{ role: 'user', content }]
-            };
-          }
-          
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              // Include the auth token if available
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify(payload)
-          });
+        const provider = Object.keys(models).find(p => 
+          Object.keys(models[p]).includes(selectedModels[i])
+        );
+        
+        // Check if message has file attachments, use chat-with-upload if so
+        let endpoint = 'http://localhost:8000/chat';
+        let payload;
+        
+        if (fileAttachments && fileAttachments.length > 0) {
+          // Use the first file's backend ID - you might want to support multiple files in the future
+          const fileId = fileAttachments[0].backendId;
+          endpoint = 'http://localhost:8000/chat-with-upload';
+          payload = {
+            provider,
+            model_key: selectedModels[i],
+            file_id: fileId,
+            user_prompt: content
+          };
+        } else {
+          payload = {
+            provider,
+            model_key: selectedModels[i],
+            messages: [{ role: 'user', content }]
+          };
+        }
+        
+        // Create a function that handles the API call and streaming for this model
+        const callModelApi = async () => {
+          console.log(`Starting request for model ${i} at ${new Date().toISOString()}`);
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                // Include the auth token if available
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify(payload)
+            });
 
-          if (!response.ok) {
-            // If unauthorized, logout
-            if (response.status === 401 && onLogout) {
-              onLogout();
-              throw new Error('Session expired. Please login again.');
+            if (!response.ok) {
+              // If unauthorized, logout
+              if (response.status === 401 && onLogout) {
+                onLogout();
+                throw new Error('Session expired. Please login again.');
+              }
+              throw new Error(`HTTP error! status: ${response.status}`);
             }
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
 
-          const reader = response.body?.getReader();
-          const decoder = new TextDecoder();
-          let aiResponse = '';
-          const aiMessageId = `${Date.now()}-ai-${i}`;
-          
-          // Add empty AI message to show streaming
-          setMessages(prev => [...prev, { 
-            id: aiMessageId,
-            content: '',
-            isUser: false,
-            timestamp: new Date(),
-            modelName: models[provider!][selectedModels[i]]?.name || 'AI',
-            columnIndex: i
-          }]);
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let aiResponse = '';
+            const aiMessageId = `${Date.now()}-ai-${i}`;
+            
+            // Add empty AI message to show streaming
+            setMessages(prev => [...prev, { 
+              id: aiMessageId,
+              content: '',
+              isUser: false,
+              timestamp: new Date(),
+              modelName: models[provider!][selectedModels[i]]?.name || 'AI',
+              columnIndex: i
+            }]);
 
-          while (reader) {
-            const { done, value } = await reader.read();
-            if (done) break;
+            while (reader) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              
+              const chunk = decoder.decode(value);
+              aiResponse += chunk;
+              
+              // Update streaming responses separately instead of updating the full messages array
+              setStreamingResponses(prev => ({
+                ...prev,
+                [aiMessageId]: aiResponse
+              }));
+            }
             
-            const chunk = decoder.decode(value);
-            aiResponse += chunk;
-            
-            // Update the AI message content
+            // When streaming is complete, update the message content once
             setMessages(prev => prev.map(msg => 
               msg.id === aiMessageId 
                 ? { ...msg, content: aiResponse }
                 : msg
             ));
+            
+            // Clear from streaming state to save memory
+            setStreamingResponses(prev => {
+              const newState = {...prev};
+              delete newState[aiMessageId];
+              return newState;
+            });
+            
+            console.log(`Completed request for model ${i} at ${new Date().toISOString()}`);
+            await saveChatHistory(i);
+            return;
+          } catch (error) {
+            console.error('Error sending message:', error);
+            setMessages(prev => [...prev, { 
+              id: `${Date.now()}-error-${i}`,
+              content: 'Network error. Please try again.', 
+              isUser: false,
+              timestamp: new Date(),
+              columnIndex: i
+            }]);
           }
-          
-          setIsLoading(false);
-        } catch (error) {
-          console.error('Error sending message:', error);
-          setMessages(prev => [...prev, { 
-            id: `${Date.now()}-error-${i}`,
-            content: 'Network error. Please try again.', 
-            isUser: false,
-            timestamp: new Date(),
-            columnIndex: i
-          }]);
-          setIsLoading(false);
-        }
+        };
+        
+        // Add this call to our array of promises
+        modelPromises.push(callModelApi());
       }
-      await saveChatHistory(i);
     }
 
-    setMessage('');
-    setHasInteraction(true);
+    // Execute all API calls in parallel
+    try {
+      await Promise.all(modelPromises);
+    } finally {
+      setIsLoading(false);
+      setMessage('');
+      setHasInteraction(true);
+    }
   };
 
   const toggleTheme = () => {
@@ -411,13 +486,47 @@ useEffect(() => {
   };
 
   // Select an existing conversation
-  const selectConversation = (conversationId: string) => {
+  const selectConversation = async (conversationId: string) => {
     setCurrentConversationId(conversationId);
-    // In a real app, you would load the messages for this conversation from the backend
-    // For now, we'll just clear the messages
-    setMessages([]);
-    setHasInteraction(false);
+    
+    try {
+      const response = await fetch(`http://localhost:8000/get-chat-history/${conversationId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to fetch conversation history');
+      }
+  
+      const history = await response.json();
+  
+      const restoredMessages = history.messages.map((msg: any) => ({
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Ensure unique ID
+        content: msg.content,
+        isUser: msg.role === 'user',
+        timestamp: new Date(),
+        modelName: history.model_name,
+        columnIndex: 0 // For now placing in column 0, you can enhance this later for multi-column
+      }));
+  
+      setMessages(restoredMessages);
+      // Set hasInteraction to true after loading messages
+      setHasInteraction(true);
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+      alert('Failed to load conversation. Please try again.');
+    }
   };
+  //Logout User
+  const logoutUser = () => {
+    localStorage.removeItem("token");
+    window.location.reload();
+  };
+  
   
   // Delete a conversation
   const deleteConversation = (conversationId: string) => {
@@ -448,16 +557,20 @@ useEffect(() => {
         fixed left-0 top-0 h-full transition-transform duration-300 ease-in-out z-40
         ${isSidebarVisible ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <Sidebar 
-          isDarkMode={isDarkMode} 
-          onToggleTheme={toggleTheme}
+        <Sidebar
+          isDarkMode={isDarkMode}
           toggleSidebar={toggleSidebar}
           conversations={conversations}
           currentConversationId={currentConversationId}
           onSelectConversation={selectConversation}
-          onNewChat={() => createNewConversation()}
-          onLogout={onLogout}
+          onNewChat={handleNewChat}
+          onDeleteConversation={deleteConversation}
+          onLogout={logoutUser}
+          setMessages={setMessages}
+          setCurrentConversationId={setCurrentConversationId}
+          setSelectedModel={(model) => handleModelSelect(model, 0)}
         />
+
       </div>
 
       {/* Main Content */}
@@ -487,6 +600,7 @@ useEffect(() => {
               selectedModel={selectedModels[index] || ''}
               setSelectedModel={(model) => handleModelSelect(model, index)}
               messages={messages.filter(msg => msg.columnIndex === index)}
+              streamingResponses={streamingResponses}
               hasInteraction={hasInteraction}
               isLoading={isLoading}
               models={models}
