@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { Login } from './components/auth/Login'
 import { Signup } from './components/auth/Signup'
+import { ResetPassword } from './components/auth/ResetPassword'
+import { VerifyEmail } from './components/auth/VerifyEmail'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 
@@ -50,6 +52,12 @@ function MainApp() {
         } />
         <Route path="/signup" element={
           isAuthenticated ? <Navigate to="/" /> : <Signup />
+        } />
+        <Route path="/reset-password" element={
+          isAuthenticated ? <Navigate to="/" /> : <ResetPassword />
+        } />
+        <Route path="/verify-email" element={
+          isAuthenticated ? <Navigate to="/" /> : <VerifyEmail />
         } />
         <Route path="/" element={
           <ProtectedRoute isAuthenticated={isAuthenticated}>

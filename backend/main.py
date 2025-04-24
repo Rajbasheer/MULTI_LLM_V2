@@ -1,17 +1,27 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException , Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Literal
+from sqlalchemy.orm import Session
+import json
 
 from features import file_upload, chat_with_upload, chat_history
 from llm_router import stream_openai, stream_claude, stream_gemini, stream_openrouter
 from models import MODELS
-from db.models_db import init_db
-from auth import auth, auth_extra 
+from db.models_db import init_db, SessionLocal, ChatHistory, User
+from auth import auth, auth_extra
+from auth.auth import get_current_user
 
 # Initialize database (only for user + chat history)
 init_db()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # App instance
 app = FastAPI()
@@ -46,6 +56,8 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Invalid provider or model")
 
     try:
+        message=messages[-10:]
+        # Stream response based on provider
         if req.provider == "openai":
             return StreamingResponse(stream_openai(messages, model_id), media_type="text/plain")
         elif req.provider == "claude":
@@ -58,6 +70,57 @@ async def chat(req: ChatRequest):
             raise HTTPException(status_code=400, detail="Unsupported provider")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/save-chat-history")
+def save_chat_history(
+    chat_data: dict, 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    try:
+        # Prepare chat history entry
+        new_chat_history = ChatHistory(
+            user_id=current_user.id,
+            model_provider=chat_data.get('provider'),
+            model_name=chat_data.get('model_name'),
+            conversation_id=chat_data.get('conversation_id'),
+            messages=json.dumps(chat_data.get('messages', []))
+        )
+        
+        db.add(new_chat_history)
+        db.commit()
+        db.refresh(new_chat_history)
+        
+        return {"message": "Chat history saved successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get-chat-history")
+def get_chat_history(
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    try:
+        # Fetch user's chat histories
+        chat_histories = db.query(ChatHistory).filter(
+            ChatHistory.user_id == current_user.id
+        ).order_by(ChatHistory.created_at.desc()).all()
+        
+        return [
+            {
+                "id": history.id,
+                "model_provider": history.model_provider,
+                "model_name": history.model_name,
+                "conversation_id": history.conversation_id,
+                "messages": json.loads(history.messages),
+                "created_at": history.created_at
+            } for history in chat_histories
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 # === GET /models ===
 @app.get("/models")

@@ -177,6 +177,40 @@ function App({ token, onLogout }: AppProps) {
     }
   };
 
+  const saveChatHistory = async (columnIndex: number) => {
+    // Get messages for this specific column
+    const columnMessages = messages
+      .filter(msg => msg.columnIndex === columnIndex)
+      .map(msg => ({
+        role: msg.isUser ? 'user' : 'assistant',
+        content: msg.content
+      }));
+  
+    try {
+      const response = await fetch('http://localhost:8000/save-chat-history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          provider: Object.keys(models).find(p => 
+            Object.keys(models[p]).includes(selectedModels[columnIndex])
+          ),
+          model_name: models[provider][selectedModels[columnIndex]].name,
+          conversation_id: currentConversationId,
+          messages: columnMessages
+        })
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to save chat history');
+      }
+    } catch (error) {
+      console.error('Error saving chat history:', error);
+    }
+  };
+  
   const handleSendMessage = async (content: string, files?: File[]) => {
     if (!content.trim() && (!files || files.length === 0)) return;
 
@@ -309,6 +343,7 @@ function App({ token, onLogout }: AppProps) {
           setIsLoading(false);
         }
       }
+      await saveChatHistory(i);
     }
 
     setMessage('');
@@ -322,6 +357,44 @@ function App({ token, onLogout }: AppProps) {
   const toggleSidebar = () => {
     setIsSidebarVisible(prev => !prev);
   };
+
+  // In App.tsx
+useEffect(() => {
+  // Fetch chat history when token is available
+  const fetchChatHistory = async () => {
+    if (!token) return;
+
+    try {
+      const response = await fetch('http://localhost:8000/get-chat-history', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch chat history');
+      }
+
+      const chatHistories = await response.json();
+      
+      // Transform chat histories into conversation format
+      const formattedConversations = chatHistories.map((history: any) => ({
+        id: history.conversation_id || history.id.toString(),
+        title: `Chat with ${history.model_name}`, // You can improve title generation
+        timestamp: new Date(history.created_at)
+      }));
+
+      // Update conversations state
+      setConversations(formattedConversations);
+    } catch (error) {
+      console.error('Error fetching chat history:', error);
+    }
+  };
+
+  fetchChatHistory();
+}, [token]); // Re-fetch when token changes
 
   // Create a new conversation
   const createNewConversation = (title: string = 'New Conversation') => {

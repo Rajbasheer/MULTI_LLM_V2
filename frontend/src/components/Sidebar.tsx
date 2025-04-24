@@ -1,5 +1,6 @@
-import React from 'react';
-import { MessageSquare, FileText, Search, Code, Settings, ChevronLeft, PlusCircle, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { MessageSquare, FileText, Search, Code, Settings, ChevronLeft, PlusCircle, Trash2, User, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Conversation {
   id: string;
@@ -15,6 +16,7 @@ interface SidebarProps {
   onSelectConversation?: (id: string) => void;
   onNewChat?: () => void;
   onDeleteConversation?: (id: string) => void;
+  onLogout: () => void;
 }
 
 export function Sidebar({ 
@@ -24,17 +26,34 @@ export function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewChat,
-  onDeleteConversation
+  onDeleteConversation,
+  onLogout
 }: SidebarProps) {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const navigate = useNavigate();
+
   const navigationItems = [
     { path: '/chat', label: 'Chat', Icon: MessageSquare },
     { path: '/files', label: 'Files', Icon: FileText },
     { path: '/search', label: 'Search', Icon: Search },
     { path: '/code', label: 'Code Generation', Icon: Code },
-    { path: '/settings', label: 'Settings', Icon: Settings },
   ];
   
   const activePath = '/chat'; // Default to chat view
+
+  const handleSettingsClick = () => {
+    setIsSettingsOpen(!isSettingsOpen);
+  };
+
+  const handleAccountClick = () => {
+    navigate('/account');
+    setIsSettingsOpen(false);
+  };
+
+  const handleLogout = () => {
+    onLogout();
+    setIsSettingsOpen(false);
+  };
   
   return (
     <div className={`w-64 h-full ${isDarkMode ? 'bg-[#202123]' : 'bg-white'} border-r ${isDarkMode ? 'border-gray-600/50' : 'border-gray-200'} flex flex-col`}>
@@ -119,6 +138,48 @@ export function Sidebar({
             <span>{item.label}</span>
           </div>
         ))}
+
+        {/* Settings with Dropdown */}
+        <div 
+          className="relative"
+          onClick={handleSettingsClick}
+        >
+          <div 
+            className={`flex items-center px-4 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 
+              ${isSettingsOpen ? 'bg-gray-100 dark:bg-gray-700' : ''}`}
+          >
+            <Settings size={16} className="mr-2" />
+            <span>Settings</span>
+          </div>
+
+          {isSettingsOpen && (
+            <div 
+              className={`absolute bottom-full mb-2 left-0 right-0 mx-4 bg-white dark:bg-gray-700 
+                rounded-md shadow-lg border border-gray-200 dark:border-gray-600 z-50`}
+            >
+              <div 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAccountClick();
+                }}
+                className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center cursor-pointer`}
+              >
+                <User size={16} className="mr-2" />
+                User Account
+              </div>
+              <div 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleLogout();
+                }}
+                className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center cursor-pointer text-red-600 dark:text-red-400"
+              >
+                <LogOut size={16} className="mr-2" />
+                Logout
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -50,6 +50,7 @@ export function VerifyEmail() {
     
     verifyEmail();
   }, [location, navigate]);
+
   
   return (
     <AuthLayout>
