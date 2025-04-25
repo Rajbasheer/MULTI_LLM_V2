@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Index, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
@@ -14,16 +14,21 @@ class ChatHistory(Base):
     __tablename__ = "chat_histories"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    
-    # Ensure these column names match exactly with what you're trying to save
-    provider = Column(String, nullable=False)  # Changed from model_provider
-    model = Column(String, nullable=False)     # Changed from model_name
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     conversation_id = Column(String, nullable=False)
-    messages = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    messages = Column(String, nullable=False)  # Will store the JSON string with all model data
+    title = Column(String, nullable=True)  # Optional title for the conversation
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
+    # Define the relationship to User
     user = relationship("User", back_populates="chat_histories")
+    
+    # Create indexes for faster queries
+    __table_args__ = (
+        Index('idx_conversation_id', conversation_id),
+        Index('idx_user_id', user_id),
+    )
 
 class User(Base):
     __tablename__ = "users"

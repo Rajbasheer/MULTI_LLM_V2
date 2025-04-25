@@ -25,8 +25,11 @@ interface ModelsData {
 
 interface Conversation {
   id: string;
+  conversation_id: string;
   title: string;
-  timestamp: Date;
+  messages: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Message {
@@ -66,6 +69,9 @@ function App({ token, onLogout }: AppProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
 
+  // Track which columns have been saved
+  const savedColumnsRef = useRef<{ [key: number]: boolean }>({});
+
   const handleNewChat = () => {
     setCurrentConversationId(`conv-${Date.now()}`);
     setMessages([]);
@@ -85,7 +91,7 @@ function App({ token, onLogout }: AppProps) {
         if (!response.ok) throw new Error("Failed to fetch conversations");
   
         const data = await response.json();
-        setConversations(data); // Assuming it's an array of { id, model_name, conversation_id, created_at }
+        setConversations(data);
       } catch (error) {
         console.error("Failed to load conversations", error);
       }
@@ -132,12 +138,6 @@ function App({ token, onLogout }: AppProps) {
     };
     
     fetchModels();
-    
-    // Load conversations from localStorage (keeping this as is)
-    const savedConversations = localStorage.getItem('conversations');
-    if (savedConversations) {
-      setConversations(JSON.parse(savedConversations));
-    }
   }, []);
 
   const handleModelSelect = async (modelKey: string, columnIndex: number) => {
@@ -146,11 +146,49 @@ function App({ token, onLogout }: AppProps) {
       newSelectedModels[columnIndex] = modelKey;
       setSelectedModels(newSelectedModels);
       setInputDisabled(false);
+      
+      // Clear only the messages for this column
       setMessages(prev => prev.filter(msg => msg.columnIndex !== columnIndex));
-      setHasInteraction(false);
+      
+      // Fetch conversations for this model
+      fetchModelConversations(modelKey);
     } catch (error) {
       console.error('Error selecting model:', error);
       alert('Error selecting model');
+    }
+  };
+
+  const fetchModelConversations = async (modelKey: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`http://localhost:8000/get-chat-history?model=${encodeURIComponent(modelKey)}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch model conversations");
+
+      // We're not replacing all conversations, just ensuring this model's
+      // conversations are included in the list
+      const modelConversations = await response.json();
+      
+      // Update conversations if we got new ones
+      if (modelConversations.length > 0) {
+        setConversations(prevConversations => {
+          // Create a map of existing conversation IDs for quick lookup
+          const existingConvIds = new Set(prevConversations.map(c => c.conversation_id));
+          
+          // Add only new conversations
+          const newConversations = modelConversations.filter(
+            (c: Conversation) => !existingConvIds.has(c.conversation_id)
+          );
+          
+          return [...prevConversations, ...newConversations];
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load model conversations", error);
     }
   };
 
@@ -208,29 +246,74 @@ function App({ token, onLogout }: AppProps) {
     }
   };
 
-  const savedColumnsRef = useRef<{ [key: number]: boolean }>({});
-
-  const saveChatHistory = async (columnIndex: number) => {
+  // Modified saveChatHistory to use the new nested format
+  const saveChatHistory = async (columnIndex: number, conversationId: string) => {
     // If already saved for this column, skip
     if (savedColumnsRef.current[columnIndex]) return;
-  
+
+    // Get the model key
+    const modelKey = selectedModels[columnIndex];
+    if (!modelKey) {
+      console.error("No model selected for this column");
+      return;
+    }
+
+    // Filter messages for this column
     const columnMessages = messages
       .filter(msg => msg.columnIndex === columnIndex)
       .map(msg => ({
         role: msg.isUser ? 'user' : 'assistant',
-        content: msg.content
+        message: msg.content  // Changed from 'content' to 'message' to match your format
       }));
-  
-    const providerKey = Object.keys(models).find(p =>
-      Object.keys(models[p]).includes(selectedModels[columnIndex])
-    );
-    if (!providerKey) {
-      console.error("Provider key not found for selected model.");
-      return;
-    }
-    const modelName = models[providerKey][selectedModels[columnIndex]].name;
-  
+
     try {
+      console.log(`Saving chat history for column ${columnIndex} with conversation ID: ${conversationId}`);
+      
+      // First, check if there's an existing conversation to update
+      const checkResponse = await fetch(`http://localhost:8000/get-chat-history/${conversationId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      // Continuation of saveChatHistory function
+      let existingData = {};
+      let isNewConversation = false;
+
+      if (checkResponse.ok) {
+        // Conversation exists, get existing data
+        const existingConversation = await checkResponse.json();
+        try {
+          existingData = JSON.parse(existingConversation.messages);
+        } catch (e) {
+          // If messages aren't in JSON format yet, initialize as empty object
+          existingData = {};
+        }
+      } else {
+        // New conversation
+        isNewConversation = true;
+      }
+
+      // Update with new messages for this model
+      const updatedData = {
+        ...existingData,
+        [modelKey]: {
+          messages: columnMessages
+        }
+      };
+
+      // Extract title from first user message if available
+      let title = "";
+      const firstUserMessage = columnMessages.find(msg => msg.role === 'user');
+      if (firstUserMessage) {
+        title = firstUserMessage.message.substring(0, 30) + (firstUserMessage.message.length > 30 ? "..." : "");
+      } else {
+        title = `Conversation with ${getModelDisplayName(modelKey)}`;
+      }
+
+      // Save the updated conversation
       const response = await fetch('http://localhost:8000/save-chat-history', {
         method: 'POST',
         headers: {
@@ -238,31 +321,80 @@ function App({ token, onLogout }: AppProps) {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          provider: providerKey,
-          model_name: modelName,
-          conversation_id: currentConversationId,
-          messages: columnMessages
+          conversation_id: conversationId,
+          messages: JSON.stringify(updatedData),
+          title: title
         })
       });
-  
+
       if (!response.ok) {
+        console.error(`Failed to save chat history: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error(errorText);
         throw new Error('Failed to save chat history');
       }
-  
+
       // Mark this column as saved
       savedColumnsRef.current[columnIndex] = true;
       console.log(`Chat history saved for column ${columnIndex}`);
+      
+      // If this is a new conversation, refresh the conversation list
+      if (isNewConversation) {
+        fetchModelConversations(modelKey);
+      }
     } catch (error) {
       console.error('Error saving chat history:', error);
     }
   };
   
+  // Helper function to get a nicely formatted model name
+  const getModelDisplayName = (modelKey: string) => {
+    // Find the provider and model
+    const provider = Object.keys(models).find(p => 
+      Object.keys(models[p]).includes(modelKey)
+    );
+    
+    if (provider && models[provider][modelKey]) {
+      return models[provider][modelKey].name;
+    }
+    
+    // Fallback to beautifying the model key
+    return modelKey
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+  
+  // Modified createNewConversation to return the new ID
+  const createNewConversation = (title: string = 'New Conversation'): string => {
+    const newId = `conv-${Date.now()}`;
+    const newConversation: Conversation = {
+      id: newId,
+      conversation_id: newId,
+      title,
+      messages: "{}",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    setConversations(prev => [newConversation, ...prev]);
+    setCurrentConversationId(newId);
+    setMessages([]);
+    setHasInteraction(false);
+    
+    return newId; // Return the new ID for immediate use
+  };
+
+  // Updated handleSendMessage function
   const handleSendMessage = async (content: string, files?: File[]) => {
     if (!content.trim() && (!files || files.length === 0)) return;
 
-    // Create new conversation if none exists
-    if (!currentConversationId) {
-      createNewConversation(content.substring(0, 30));
+    // Get or create conversation ID
+    let activeConversationId = currentConversationId;
+    if (!activeConversationId) {
+      console.log("No current conversation ID, creating a new one");
+      activeConversationId = createNewConversation(content.substring(0, 30));
+      console.log(`Created new conversation with ID: ${activeConversationId}`);
     }
 
     let fileAttachments: FileAttachment[] | undefined;
@@ -287,6 +419,9 @@ function App({ token, onLogout }: AppProps) {
 
     // Create an array of promises for each API call
     const modelPromises = [];
+    
+    // Reset saved columns for this new message
+    savedColumnsRef.current = {};
 
     // Set up user messages and prepare API calls for all active models
     for (let i = 0; i < columnCount; i++) {
@@ -374,7 +509,7 @@ function App({ token, onLogout }: AppProps) {
               const chunk = decoder.decode(value);
               aiResponse += chunk;
               
-              // Update streaming responses separately instead of updating the full messages array
+              // Update streaming responses separately for more efficient rendering
               setStreamingResponses(prev => ({
                 ...prev,
                 [aiMessageId]: aiResponse
@@ -396,7 +531,9 @@ function App({ token, onLogout }: AppProps) {
             });
             
             console.log(`Completed request for model ${i} at ${new Date().toISOString()}`);
-            await saveChatHistory(i);
+            
+            // Pass the active conversation ID explicitly to ensure it's the correct one
+            await saveChatHistory(i, activeConversationId);
             return;
           } catch (error) {
             console.error('Error sending message:', error);
@@ -425,67 +562,7 @@ function App({ token, onLogout }: AppProps) {
     }
   };
 
-  const toggleTheme = () => {
-    setIsDarkMode(prev => !prev);
-  };
-
-  const toggleSidebar = () => {
-    setIsSidebarVisible(prev => !prev);
-  };
-
-  // In App.tsx
-useEffect(() => {
-  // Fetch chat history when token is available
-  const fetchChatHistory = async () => {
-    if (!token) return;
-
-    try {
-      const response = await fetch('http://localhost:8000/get-chat-history', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch chat history');
-      }
-
-      const chatHistories = await response.json();
-      
-      // Transform chat histories into conversation format
-      const formattedConversations = chatHistories.map((history: any) => ({
-        id: history.conversation_id || history.id.toString(),
-        title: `Chat with ${history.model_name}`, // You can improve title generation
-        timestamp: new Date(history.created_at)
-      }));
-
-      // Update conversations state
-      setConversations(formattedConversations);
-    } catch (error) {
-      console.error('Error fetching chat history:', error);
-    }
-  };
-
-  fetchChatHistory();
-}, [token]); // Re-fetch when token changes
-
-  // Create a new conversation
-  const createNewConversation = (title: string = 'New Conversation') => {
-    const newConversation: Conversation = {
-      id: Date.now().toString(),
-      title,
-      timestamp: new Date()
-    };
-    
-    setConversations(prev => [newConversation, ...prev]);
-    setCurrentConversationId(newConversation.id);
-    setMessages([]);
-    setHasInteraction(false);
-  };
-
-  // Select an existing conversation
+  // Updated selectConversation function for the new format
   const selectConversation = async (conversationId: string) => {
     setCurrentConversationId(conversationId);
     
@@ -503,41 +580,109 @@ useEffect(() => {
       }
   
       const history = await response.json();
-  
-      const restoredMessages = history.messages.map((msg: any) => ({
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Ensure unique ID
-        content: msg.content,
-        isUser: msg.role === 'user',
-        timestamp: new Date(),
-        modelName: history.model_name,
-        columnIndex: 0 // For now placing in column 0, you can enhance this later for multi-column
-      }));
-  
-      setMessages(restoredMessages);
-      // Set hasInteraction to true after loading messages
-      setHasInteraction(true);
+      
+      try {
+        // Parse the nested data structure
+        const parsedMessages = JSON.parse(history.messages);
+        
+        // Create an array to hold all messages from all models
+        let allMessages: Message[] = [];
+        
+        // For each model in the conversation
+        Object.entries(parsedMessages).forEach(([modelKey, modelData]: [string, any], modelIndex) => {
+          if (modelData.messages && Array.isArray(modelData.messages)) {
+            // Check if this model is selected in a column
+            const columnIndex = selectedModels.indexOf(modelKey);
+            const targetColumnIndex = columnIndex >= 0 ? columnIndex : 0;
+            
+            // Add messages from this model to the messages array
+            const modelMessages = modelData.messages.map((msg: any, msgIndex: number) => ({
+              id: `${Date.now()}-${modelIndex}-${msgIndex}-${Math.random().toString(36).substr(2, 9)}`,
+              content: msg.message,
+              isUser: msg.role === 'user',
+              timestamp: new Date(),
+              modelName: getModelDisplayName(modelKey),
+              columnIndex: targetColumnIndex
+            }));
+            
+            allMessages = [...allMessages, ...modelMessages];
+          }
+        });
+
+        setMessages(allMessages);
+        // Set hasInteraction to true after loading messages
+        setHasInteraction(true);
+      } catch (e) {
+        console.error('Error parsing messages:', e);
+      }
+      
     } catch (error) {
       console.error('Error loading conversation:', error);
       alert('Failed to load conversation. Please try again.');
     }
   };
-  //Logout User
-  const logoutUser = () => {
-    localStorage.removeItem("token");
-    window.location.reload();
+
+  const toggleTheme = () => {
+    setIsDarkMode(prev => !prev);
   };
-  
-  
-  // Delete a conversation
-  const deleteConversation = (conversationId: string) => {
-    // Remove the conversation from the list
-    setConversations(prev => prev.filter(c => c.id !== conversationId));
+
+  const toggleSidebar = () => {
+    setIsSidebarVisible(prev => !prev);
+  };
+
+  // Fetch chat history when token is available
+  useEffect(() => {
+    if (!token) return;
     
-    // If the deleted conversation is the current one, clear the messages
-    if (currentConversationId === conversationId) {
-      setCurrentConversationId(undefined);
-      setMessages([]);
-      setHasInteraction(false);
+    const fetchChatHistory = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/get-chat-history', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch chat history');
+        }
+
+        const chatHistories = await response.json();
+        setConversations(chatHistories);
+      } catch (error) {
+        console.error('Error fetching chat history:', error);
+      }
+    };
+
+    fetchChatHistory();
+  }, [token]); // Re-fetch when token changes
+
+  // Delete a conversation
+  const deleteConversation = async (conversationId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`http://localhost:8000/delete-chat-history/${conversationId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to delete conversation");
+      
+      // Remove the conversation from the list
+      setConversations(prev => prev.filter(c => c.conversation_id !== conversationId));
+      
+      // If the deleted conversation is the current one, clear the messages
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(undefined);
+        setMessages([]);
+        setHasInteraction(false);
+      }
+    } catch (error) {
+      console.error("Failed to delete conversation", error);
+      alert("Failed to delete conversation. Please try again.");
     }
   };
 
@@ -565,12 +710,14 @@ useEffect(() => {
           onSelectConversation={selectConversation}
           onNewChat={handleNewChat}
           onDeleteConversation={deleteConversation}
-          onLogout={logoutUser}
+          onLogout={onLogout || (() => {})}
           setMessages={setMessages}
           setCurrentConversationId={setCurrentConversationId}
           setSelectedModel={(model) => handleModelSelect(model, 0)}
+          selectedModels={selectedModels}
+          columnCount={columnCount}
+          models={models}
         />
-
       </div>
 
       {/* Main Content */}
@@ -606,6 +753,7 @@ useEffect(() => {
               models={models}
               onDeleteMessage={(messageId) => handleDeleteMessage(messageId, index)}
               isDarkMode={isDarkMode}
+              handleExport={() => {}} // Add empty function for now
             />
           ))}
         </div>

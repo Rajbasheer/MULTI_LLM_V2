@@ -36,12 +36,46 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const lastSavedMessageId = useRef<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
 
+  // Helper function to get a nicely formatted model name
+  const getModelDisplayName = (modelKey: string) => {
+    // Find the provider and model
+    const provider = Object.keys(models).find(p => 
+      Object.keys(models[p]).includes(modelKey)
+    );
+    
+    if (provider && models[provider][modelKey]) {
+      return models[provider][modelKey].name;
+    }
+    
+    // Fallback to beautifying the model key
+    return modelKey
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingResponses]);
+
+  // CSS for custom scrollbar
+  const customScrollbarStyle = {
+    // Firefox scrollbar styles
+    scrollbarWidth: 'thin' as 'thin',
+    scrollbarColor: 'rgb(147 51 234) rgba(0, 0, 0, 0.1)',
+  };
+
+  // CSS classes for webkit scrollbar (Chrome, Safari, Edge)
+  const scrollbarClass = `
+    scrollbar-thin scrollbar-track-transparent scrollbar-thumb-purple-600
+    [&::-webkit-scrollbar]:w-1.5
+    [&::-webkit-scrollbar-track]:bg-transparent
+    [&::-webkit-scrollbar-thumb]:bg-purple-600
+    [&::-webkit-scrollbar-thumb]:rounded-full
+  `;
 
   return (
     <div
@@ -109,8 +143,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden"
-        style={{ height: "calc(100% - 144px)" }}
+        className={`flex-1 overflow-y-auto overflow-x-hidden ${scrollbarClass}`}
+        style={{ 
+          height: "calc(100% - 144px)",
+          ...customScrollbarStyle
+        }}
       >
         {!hasInteraction || messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
@@ -120,14 +157,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   isDarkMode ? "text-gray-200" : "text-gray-800"
                 }`}
               >
-                Select a model
+                {selectedModel ? getModelDisplayName(selectedModel) : "Select a model"}
               </h1>
               <p
                 className={`${
                   isDarkMode ? "text-gray-400" : "text-gray-600"
                 } text-sm`}
               >
-                Choose an AI model to start chatting
+                {selectedModel 
+                  ? "Get started by typing a message below"
+                  : "Choose an AI model to start chatting"
+                }
               </p>
             </div>
           </div>
