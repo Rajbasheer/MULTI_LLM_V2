@@ -5,6 +5,7 @@ import { Login } from './components/auth/Login'
 import { Signup } from './components/auth/Signup'
 import { ResetPassword } from './components/auth/ResetPassword'
 import { VerifyEmail } from './components/auth/VerifyEmail'
+import ProfilePage from './components/ProfilePage' // Changed to default import
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 
@@ -27,6 +28,7 @@ function MainApp() {
   
   // Handle login success
   const handleLoginSuccess = (newToken: string) => {
+    localStorage.setItem('accessToken', newToken);
     setToken(newToken);
     setIsAuthenticated(true);
   };
@@ -58,6 +60,11 @@ function MainApp() {
         } />
         <Route path="/verify-email" element={
           isAuthenticated ? <Navigate to="/" /> : <VerifyEmail />
+        } />
+        <Route path="/profile" element={
+          <ProtectedRoute isAuthenticated={isAuthenticated}>
+            <ProfilePage />
+          </ProtectedRoute>
         } />
         <Route path="/" element={
           <ProtectedRoute isAuthenticated={isAuthenticated}>

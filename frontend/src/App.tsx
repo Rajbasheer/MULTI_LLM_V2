@@ -388,7 +388,7 @@ function App({ token, onLogout }: AppProps) {
   // Updated handleSendMessage function
   const handleSendMessage = async (content: string, files?: File[]) => {
     if (!content.trim() && (!files || files.length === 0)) return;
-
+  
     // Get or create conversation ID
     let activeConversationId = currentConversationId;
     if (!activeConversationId) {
@@ -396,7 +396,7 @@ function App({ token, onLogout }: AppProps) {
       activeConversationId = createNewConversation(content.substring(0, 30));
       console.log(`Created new conversation with ID: ${activeConversationId}`);
     }
-
+  
     let fileAttachments: FileAttachment[] | undefined;
     
     // Process file uploads if any
@@ -416,17 +416,19 @@ function App({ token, onLogout }: AppProps) {
         return;
       }
     }
-
+  
     // Create an array of promises for each API call
     const modelPromises = [];
     
     // Reset saved columns for this new message
     savedColumnsRef.current = {};
-
+  
     // Set up user messages and prepare API calls for all active models
     for (let i = 0; i < columnCount; i++) {
       if (selectedModels[i]) {
         const userMessageId = `${Date.now()}-user-${i}`;
+        
+        // Add the new user message to the messages array
         setMessages(prev => [...prev, { 
           id: userMessageId,
           content, 
@@ -442,6 +444,22 @@ function App({ token, onLogout }: AppProps) {
           Object.keys(models[p]).includes(selectedModels[i])
         );
         
+        // Collect previous messages for this column to provide context
+        const previousMessages = messages
+          .filter(msg => msg.columnIndex === i)
+          .map(msg => ({ 
+            role: msg.isUser ? 'user' : 'assistant', 
+            content: msg.content 
+          }));
+        
+        // Add the current message to the array
+        const allMessages = [
+          ...previousMessages,
+          { role: 'user', content }
+        ];
+        
+        console.log(`Sending ${allMessages.length} messages for context to model ${selectedModels[i]}`);
+        
         // Check if message has file attachments, use chat-with-upload if so
         let endpoint = 'http://localhost:8000/chat';
         let payload;
@@ -454,13 +472,14 @@ function App({ token, onLogout }: AppProps) {
             provider,
             model_key: selectedModels[i],
             file_id: fileId,
-            user_prompt: content
+            user_prompt: content,
+            conversation_history: allMessages.slice(0, -1) // Send previous messages as context
           };
         } else {
           payload = {
             provider,
             model_key: selectedModels[i],
-            messages: [{ role: 'user', content }]
+            messages: allMessages // Send all messages including the new one
           };
         }
         
@@ -477,6 +496,8 @@ function App({ token, onLogout }: AppProps) {
               },
               body: JSON.stringify(payload)
             });
+  
+            // Rest of your existing code...
 
             if (!response.ok) {
               // If unauthorized, logout

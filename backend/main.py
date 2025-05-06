@@ -57,16 +57,24 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Invalid provider or model")
 
     try:
-        message=messages[-10:]
+        # Use all messages to maintain conversation context
+        # If there are too many, consider limiting to the last N messages
+        conversation_context = messages
+        
+        # If the context is very large, you might want to limit it
+        if len(conversation_context) > 20:  # Arbitrary limit, adjust based on token limits
+            # Keep the first message (often contains instructions) and the most recent messages
+            conversation_context = [conversation_context[0]] + conversation_context[-19:]
+            
         # Stream response based on provider
         if req.provider == "openai":
-            return StreamingResponse(stream_openai(messages, model_id), media_type="text/plain")
+            return StreamingResponse(stream_openai(conversation_context, model_id), media_type="text/plain")
         elif req.provider == "claude":
-            return StreamingResponse(stream_claude(messages, model_id), media_type="text/plain")
+            return StreamingResponse(stream_claude(conversation_context, model_id), media_type="text/plain")
         elif req.provider == "gemini":
-            return StreamingResponse(stream_gemini(messages, model_id), media_type="text/plain")
+            return StreamingResponse(stream_gemini(conversation_context, model_id), media_type="text/plain")
         elif req.provider == "openrouter":
-            return StreamingResponse(stream_openrouter(messages, model_id), media_type="text/plain")
+            return StreamingResponse(stream_openrouter(conversation_context, model_id), media_type="text/plain")
         else:
             raise HTTPException(status_code=400, detail="Unsupported provider")
     except Exception as e:

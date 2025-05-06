@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, FileText, Search, Code, Settings, ChevronLeft, PlusCircle, Trash2, User, LogOut } from 'lucide-react';
+import { MessageSquare, ChevronLeft, PlusCircle, Trash2, User, LogOut, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface Message {
@@ -59,13 +59,6 @@ export function Sidebar({
   const [groupedConversations, setGroupedConversations] = useState<ModelConversations>({});
   const navigate = useNavigate();
 
-  const navigationItems = [
-    { path: '/chat', label: 'Chat', Icon: MessageSquare },
-    { path: '/files', label: 'Files', Icon: FileText },
-    { path: '/search', label: 'Search', Icon: Search },
-    { path: '/code', label: 'Code Generation', Icon: Code },
-  ];
-
   // Get model display name
   const getModelDisplayName = (modelKey: string) => {
     // Find the provider and model
@@ -119,8 +112,8 @@ export function Sidebar({
 
   const handleSettingsClick = () => setIsSettingsOpen(!isSettingsOpen);
 
-  const handleAccountClick = () => {
-    navigate('/account');
+  const handleProfileClick = () => {
+    navigate('/profile');
     setIsSettingsOpen(false);
   };
 
@@ -256,31 +249,32 @@ export function Sidebar({
       </div>
 
       <div className="py-2 border-t border-gray-200 dark:border-gray-700">
-        {navigationItems.map((item) => (
-          <div
-            key={item.path}
-            className={`flex items-center px-4 py-3 cursor-pointer ${
-              item.path === '/chat' ? 'bg-gray-100 dark:bg-gray-700 text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <item.Icon size={16} className="mr-2" />
-            <span>{item.label}</span>
-          </div>
-        ))}
-
+        {/* Settings button - Fixed to respect dark/light mode */}
         <div className="relative" onClick={handleSettingsClick}>
-          <div className={`flex items-center px-4 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${isSettingsOpen ? 'bg-gray-100 dark:bg-gray-700' : ''}`}>
+          <div className={`flex items-center px-4 py-3 cursor-pointer ${
+            isDarkMode 
+              ? (isSettingsOpen ? 'bg-gray-700 text-purple-400' : 'text-gray-300 hover:bg-gray-700')
+              : (isSettingsOpen ? 'bg-gray-100 text-purple-600' : 'text-gray-600 hover:bg-gray-100')
+          }`}>
             <Settings size={16} className="mr-2" />
             <span>Settings</span>
           </div>
 
           {isSettingsOpen && (
-            <div className="absolute bottom-full mb-2 left-0 right-0 mx-4 bg-white dark:bg-gray-700 rounded-md shadow-lg border border-gray-200 dark:border-gray-600 z-50">
-              <div onClick={handleAccountClick} className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center cursor-pointer">
+            <div className={`absolute bottom-full mb-2 left-0 right-0 mx-4 ${
+              isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'
+            } rounded-md shadow-lg border z-50`}>
+              <div onClick={handleProfileClick} 
+                className={`px-4 py-2 flex items-center cursor-pointer ${
+                  isDarkMode ? 'hover:bg-gray-600 text-gray-200' : 'hover:bg-gray-100 text-gray-700'
+                }`}>
                 <User size={16} className="mr-2" />
-                User Account
+                User Profile
               </div>
-              <div onClick={handleLogout} className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center cursor-pointer text-red-600 dark:text-red-400">
+              <div onClick={handleLogout} 
+                className={`px-4 py-2 flex items-center cursor-pointer text-red-600 ${
+                  isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-100'
+                }`}>
                 <LogOut size={16} className="mr-2" />
                 Logout
               </div>
